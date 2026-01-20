@@ -4,6 +4,7 @@ go 1.25.6
 
 require (
 	github.com/hajimehoshi/ebiten/v2 v2.9.7
+	github.com/kpechenenko/rword v0.0.4
 	golang.org/x/image v0.31.0
 )
 

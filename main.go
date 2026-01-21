@@ -24,7 +24,9 @@ type Game struct{
 
 	backspacePrev bool
 	enterKeyPrev bool
+	game_won int // 1 = win; -1 = loss
 
+	//constants
 	rows int
 	wordLength int
 	width float32
@@ -69,9 +71,13 @@ func (g *Game) Update() error {
 
 	// TODO: maybe method for logic regarding win/loss window 
 	if g.word_before == g.unknown_word || len(g.tried_words) == g.rows { 
-		fmt.Println("Game ended")
 		if g.start.IsZero() {
 			g.start = time.Now()
+			if g.word_before == g.unknown_word { //Game result logic
+				g.game_won = 1
+			} else {
+				g.game_won = -1
+			}
 		}
 		if time.Since(g.start) > 3 * time.Second {
 			return ebiten.Termination
@@ -99,6 +105,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 				ebitenutil.DrawRect(screen, float64(100 + 80 * j), float64(100 + 80 * i), 70, 70, color.RGBA{c[0], c[1], c[2], c[3]})
 				text.Draw(screen, string(g.tried_words[i][j]), basicfont.Face7x13, 130 + 80 * j, 130 + 80 * i, color.Black)
 			}
+		}
+	}
+
+	if g.game_won != 0 {
+		ebitenutil.DrawRect(screen, 51, 51, 1000-102, 650-102, color.Black)
+		ebitenutil.DrawRect(screen, 50, 50, 1000-100, 650-100, color.White)
+		switch g.game_won {
+		case 1:
+			text.Draw(screen, "You won!", basicfont.Face7x13, 1000/2, 700/2, color.Black)
+		case -1:
+			text.Draw(screen, "You lost!", basicfont.Face7x13, 1000/2, 700/2, color.Black)
 		}
 	}
 }

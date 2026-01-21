@@ -1,32 +1,42 @@
 package main
 
 import (
+	"fmt"
 	"image/color"
 	"log"
-	"fmt"
+	"slices"
 	"strings"
-	
-	"github.com/kpechenenko/rword"
-	"github.com/hajimehoshi/ebiten/v2/text"
-	"golang.org/x/image/font/basicfont"
+	"time"
+
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
+	"github.com/hajimehoshi/ebiten/v2/text"
 	"github.com/hajimehoshi/ebiten/v2/vector"
+	"github.com/kpechenenko/rword"
+	"golang.org/x/image/font/basicfont"
 )
 
 type Game struct{
 	bg *ebiten.Image
+	start time.Time
+
+	error_message string
 
 	backspacePrev bool
+	enterKeyPrev bool
 
 	rows int
 	wordLength int
+	width float32
+	height float32
 
 	unknown_word string
 	word_letters []string
 
 	guessed_word string
-	guess_word_letters []string
+	word_before string
+
+	tried_words []string
 }
 
 func (g *Game) Update() error {
@@ -39,16 +49,35 @@ func (g *Game) Update() error {
 	back_space_pressed := ebiten.IsKeyPressed(ebiten.KeyBackspace) // remove 1 char from guess per press
 	if back_space_pressed && !g.backspacePrev && len(g.guessed_word) > 0 {
 		g.guessed_word = g.guessed_word[:len(g.guessed_word) - 1]
-		fmt.Println(g.guessed_word)
 	}
 	g.backspacePrev = back_space_pressed
 
-	if ebiten.IsKeyPressed(ebiten.KeyEnter) {
-		g.split_into_chars(g.guessed_word)
+	enter_key_pressed := ebiten.IsKeyPressed(ebiten.KeyEnter)
+	if enter_key_pressed && !g.enterKeyPrev {
+		if !slices.Contains(g.tried_words, g.guessed_word) && len(g.guessed_word) == g.wordLength {
+			g.tried_words = append(g.tried_words, g.guessed_word)
+			g.word_before = g.guessed_word
+			g.guessed_word = ""
+			if g.error_message != "" {
+				g.error_message = ""
+			}
+		} else {
+			g.raise_error()
+		}
+	} 
+	g.enterKeyPrev = enter_key_pressed
+
+	// TODO: maybe method for logic regarding win/loss window 
+	if g.word_before == g.unknown_word || len(g.tried_words) == g.rows { 
+		fmt.Println("Game ended")
+		if g.start.IsZero() {
+			g.start = time.Now()
+		}
+		if time.Since(g.start) > 3 * time.Second {
+			return ebiten.Termination
+		}
 	}
 
-	
-	
 	return nil
 }
 
@@ -58,9 +87,20 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		screen.DrawImage(g.bg, nil)
 	}
 
-	ebitenutil.DebugPrint(screen, "herr sergeant! - swedish soldier")
-	text.Draw(screen, g.guessed_word, basicfont.Face7x13, 100, 90, color.Black)
+	ebitenutil.DebugPrint(screen, "herr sergeant! - swedish soldier")	
 	text.Draw(screen, "Wordle!", basicfont.Face7x13, 50, 70, color.Black)
+	text.Draw(screen, g.guessed_word, basicfont.Face7x13, 100, 90, color.Black)
+	text.Draw(screen, g.error_message, basicfont.Face7x13, 200, 90, color.RGBA{255, 0, 0, 255})
+
+	for i := 0; i < len(g.tried_words); i++ {
+		if g.tried_words[i] != "" {
+			for j := 0; j < g.wordLength; j++ {
+				c := g.letter_exist(string(g.tried_words[i][j]), j)
+				ebitenutil.DrawRect(screen, float64(100 + 80 * j), float64(100 + 80 * i), 70, 70, color.RGBA{c[0], c[1], c[2], c[3]})
+				text.Draw(screen, string(g.tried_words[i][j]), basicfont.Face7x13, 130 + 80 * j, 130 + 80 * i, color.Black)
+			}
+		}
+	}
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
@@ -71,13 +111,12 @@ func (g *Game) initBG(xPos, yPos float32) {
 	g.bg = ebiten.NewImage(1000, 700)
 	g.bg.Fill(color.RGBA{242, 241, 144, 255}) // or draw shapes onto bg
 
-	const width, height float32 = 70, 70
 	for i := 0; i < g.rows; i++ {
-		var y_pos_step float32 = yPos + (height + 10) * float32(i)
+		var y_pos_step float32 = yPos + (g.height + 10) * float32(i)
 		for j := 0; j < g.wordLength; j++ {
-			var x_pos_step float32 = xPos + (width + 10) * float32(j)
-			vector.FillRect(g.bg, x_pos_step - 1, y_pos_step - 1, width + 2, width + 2, color.Black, false)
-			vector.FillRect(g.bg, x_pos_step, y_pos_step, width, 70, color.White, false)
+			var x_pos_step float32 = xPos + (g.width + 10) * float32(j)
+			vector.FillRect(g.bg, x_pos_step - 1, y_pos_step - 1, g.width + 2, g.width + 2, color.Black, false)
+			vector.FillRect(g.bg, x_pos_step, y_pos_step, g.width, 70, color.White, false)
 		}
 	}
 }
@@ -99,8 +138,21 @@ func random_word() string {
 	}
 }
 
-func (g *Game) split_into_chars(guess string) {
-	g.guess_word_letters = strings.Split(guess, "")
+func (g *Game) raise_error() {
+	g.error_message = "Enter a word that you haven't in format ABCDE"
+}
+
+func (g *Game) letter_exist(char string, index int) [4]uint8 {
+	if g.word_letters[index] == char {
+		color_code := [4]uint8{0, 255, 0, 255}
+		return color_code
+	} else if slices.Contains(g.word_letters, char) {
+		color_code := [4]uint8{204, 102, 0, 255}
+		return color_code
+	} else {
+		color_code := [4]uint8{128, 128, 128, 255}
+		return color_code
+	}
 }
 
 func main() {
@@ -108,7 +160,7 @@ func main() {
 	ebiten.SetWindowTitle("wordle")	
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeEnabled)
 
-	g := &Game{wordLength: 5, rows: 6}
+	g := &Game{wordLength: 5, rows: 6, width: 70, height: 70}
 	g.initBG(100, 100)
 
 	g.unknown_word = random_word()
